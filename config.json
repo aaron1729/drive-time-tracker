@@ -1,5 +1,16 @@
 {
-  "origin": "560 Divisadero St, San Francisco, CA 94117",
-  "destination": "535 Ramona St, Palo Alto, CA 94301",
-  "label": "SF → Palo Alto"
+  "routes": [
+    {
+      "id": "sf-to-palo-alto",
+      "origin": "560 Divisadero St, San Francisco, CA 94117",
+      "destination": "535 Ramona St, Palo Alto, CA 94301",
+      "label": "SF → Palo Alto"
+    },
+    {
+      "id": "palo-alto-to-sf",
+      "origin": "535 Ramona St, Palo Alto, CA 94301",
+      "destination": "560 Divisadero St, San Francisco, CA 94117",
+      "label": "Palo Alto → SF"
+    }
+  ]
 }

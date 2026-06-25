@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Fetches drive time via Google Routes API and appends to data/history.jsonl
+// Fetches drive time for all routes via Google Routes API and appends to data/<id>.jsonl
 
 const https = require("https");
 const fs = require("fs");
@@ -13,71 +13,80 @@ if (!API_KEY) {
   process.exit(1);
 }
 
-const body = JSON.stringify({
-  origin: { address: config.origin },
-  destination: { address: config.destination },
-  travelMode: "DRIVE",
-  routingPreference: "TRAFFIC_AWARE",
-});
+const dataDir = path.join(__dirname, "data");
+if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir);
 
-const options = {
-  hostname: "routes.googleapis.com",
-  path: "/directions/v2:computeRoutes",
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    "X-Goog-Api-Key": API_KEY,
-    "X-Goog-FieldMask": "routes.duration",
-  },
-};
+function fetchRoute(route) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({
+      origin: { address: route.origin },
+      destination: { address: route.destination },
+      travelMode: "DRIVE",
+      routingPreference: "TRAFFIC_AWARE",
+    });
 
-const req = https.request(options, (res) => {
-  let data = "";
-  res.on("data", (chunk) => (data += chunk));
-  res.on("end", () => {
-    if (res.statusCode !== 200) {
-      console.error(`ERROR: API returned ${res.statusCode}: ${data}`);
-      process.exit(1);
-    }
+    const options = {
+      hostname: "routes.googleapis.com",
+      path: "/directions/v2:computeRoutes",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": API_KEY,
+        "X-Goog-FieldMask": "routes.duration",
+      },
+    };
 
-    let parsed;
-    try {
-      parsed = JSON.parse(data);
-    } catch (e) {
-      console.error(`ERROR: Failed to parse API response: ${data}`);
-      process.exit(1);
-    }
+    const req = https.request(options, (res) => {
+      let data = "";
+      res.on("data", (chunk) => (data += chunk));
+      res.on("end", () => {
+        if (res.statusCode !== 200) {
+          return reject(new Error(`API returned ${res.statusCode}: ${data}`));
+        }
 
-    const routes = parsed.routes;
-    if (!routes || routes.length === 0) {
-      console.error(`ERROR: No routes returned. Response: ${data}`);
-      process.exit(1);
-    }
+        let parsed;
+        try {
+          parsed = JSON.parse(data);
+        } catch (e) {
+          return reject(new Error(`Failed to parse API response: ${data}`));
+        }
 
-    const durationStr = routes[0].duration; // e.g. "754s"
-    const seconds = parseInt(durationStr.replace("s", ""), 10);
-    if (isNaN(seconds)) {
-      console.error(`ERROR: Unexpected duration format: ${durationStr}`);
-      process.exit(1);
-    }
+        const routes = parsed.routes;
+        if (!routes || routes.length === 0) {
+          return reject(new Error(`No routes returned. Response: ${data}`));
+        }
 
-    const minutes = Math.round(seconds / 60);
-    const timestamp = new Date().toISOString();
+        const durationStr = routes[0].duration; // e.g. "754s"
+        const seconds = parseInt(durationStr.replace("s", ""), 10);
+        if (isNaN(seconds)) {
+          return reject(new Error(`Unexpected duration format: ${durationStr}`));
+        }
 
-    const row = JSON.stringify({ timestamp, minutes }) + "\n";
+        const minutes = Math.round(seconds / 60);
+        const timestamp = new Date().toISOString();
+        const row = JSON.stringify({ timestamp, minutes }) + "\n";
 
-    const dataDir = path.join(__dirname, "data");
-    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir);
+        fs.appendFileSync(path.join(dataDir, `${route.id}.jsonl`), row, "utf8");
+        console.log(`OK [${route.id}]: ${timestamp} → ${minutes} min`);
+        resolve();
+      });
+    });
 
-    fs.appendFileSync(path.join(dataDir, "history.jsonl"), row, "utf8");
-    console.log(`OK: ${timestamp} → ${minutes} min`);
+    req.on("error", (e) => reject(new Error(`Request failed: ${e.message}`)));
+    req.write(body);
+    req.end();
   });
-});
+}
 
-req.on("error", (e) => {
-  console.error(`ERROR: Request failed: ${e.message}`);
-  process.exit(1);
-});
-
-req.write(body);
-req.end();
+(async () => {
+  let anyError = false;
+  for (const route of config.routes) {
+    try {
+      await fetchRoute(route);
+    } catch (e) {
+      console.error(`ERROR [${route.id}]: ${e.message}`);
+      anyError = true;
+    }
+  }
+  if (anyError) process.exit(1);
+})();

@@ -13,58 +13,74 @@
       background: #f5f5f5;
       color: #222;
       padding: 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
     }
-    h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
-    #subtitle { color: #666; font-size: 0.9rem; margin-bottom: 1.5rem; }
-    #chart-container {
+    h1 { font-size: 1.4rem; }
+    .route-block {
       background: #fff;
       border-radius: 8px;
       padding: 1.5rem;
       box-shadow: 0 1px 4px rgba(0,0,0,0.08);
       max-width: 900px;
     }
-    #status { margin-top: 1rem; font-size: 0.85rem; color: #888; }
+    .route-block h2 { font-size: 1rem; margin-bottom: 1rem; color: #444; }
+    .status { margin-top: 0.75rem; font-size: 0.85rem; color: #888; }
   </style>
 </head>
 <body>
   <h1>Drive Time Tracker</h1>
-  <div id="subtitle">Loading…</div>
-  <div id="chart-container">
-    <canvas id="chart"></canvas>
-  </div>
-  <div id="status"></div>
+  <div id="charts"></div>
 
   <script>
-    async function load() {
-      const configRes = await fetch("config.json");
-      const config = await configRes.json();
-      document.getElementById("subtitle").textContent = config.label || `${config.origin} → ${config.destination}`;
+    const COLORS = ["#2563eb", "#dc2626"];
 
-      const dataRes = await fetch("data/history.jsonl");
-      const text = await dataRes.text();
-      const rows = text.trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
+    async function loadRoute(route, color) {
+      const block = document.createElement("div");
+      block.className = "route-block";
 
-      if (rows.length === 0) {
-        document.getElementById("status").textContent = "No data yet — check back after the first scheduled run.";
+      const title = document.createElement("h2");
+      title.textContent = route.label;
+      block.appendChild(title);
+
+      const canvas = document.createElement("canvas");
+      block.appendChild(canvas);
+
+      const status = document.createElement("div");
+      status.className = "status";
+      status.textContent = "Loading…";
+      block.appendChild(status);
+
+      document.getElementById("charts").appendChild(block);
+
+      let rows = [];
+      try {
+        const res = await fetch(`data/${route.id}.jsonl`);
+        const text = await res.text();
+        rows = text.trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
+      } catch (e) {
+        status.textContent = `Error loading data: ${e.message}`;
         return;
       }
 
-      const labels = rows.map(r => new Date(r.timestamp));
-      const values = rows.map(r => r.minutes);
+      if (rows.length === 0) {
+        status.textContent = "No data yet — check back after the first scheduled run.";
+        return;
+      }
 
       const latest = rows[rows.length - 1];
-      document.getElementById("status").textContent =
-        `Last updated: ${new Date(latest.timestamp).toLocaleString()} · ${latest.minutes} min · ${rows.length} samples`;
+      status.textContent = `Last updated: ${new Date(latest.timestamp).toLocaleString()} · ${latest.minutes} min · ${rows.length} samples`;
 
-      new Chart(document.getElementById("chart"), {
+      new Chart(canvas, {
         type: "line",
         data: {
-          labels,
+          labels: rows.map(r => new Date(r.timestamp)),
           datasets: [{
             label: "Drive time (min)",
-            data: values,
-            borderColor: "#2563eb",
-            backgroundColor: "rgba(37,99,235,0.08)",
+            data: rows.map(r => r.minutes),
+            borderColor: color,
+            backgroundColor: color.replace(")", ", 0.08)").replace("rgb", "rgba"),
             borderWidth: 2,
             pointRadius: rows.length > 200 ? 0 : 3,
             tension: 0.2,
@@ -86,18 +102,22 @@
           },
           plugins: {
             legend: { display: false },
-            tooltip: {
-              callbacks: {
-                label: ctx => `${ctx.parsed.y} min`,
-              },
-            },
+            tooltip: { callbacks: { label: ctx => `${ctx.parsed.y} min` } },
           },
         },
       });
     }
 
+    async function load() {
+      const configRes = await fetch("config.json");
+      const config = await configRes.json();
+      for (let i = 0; i < config.routes.length; i++) {
+        await loadRoute(config.routes[i], COLORS[i % COLORS.length]);
+      }
+    }
+
     load().catch(err => {
-      document.getElementById("status").textContent = `Error loading data: ${err.message}`;
+      document.getElementById("charts").textContent = `Error: ${err.message}`;
     });
   </script>
 </body>
