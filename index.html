@@ -16,9 +16,33 @@
       padding: 2rem;
       display: flex;
       flex-direction: column;
-      gap: 2rem;
+      gap: 1.5rem;
     }
     h1 { font-size: 1.4rem; }
+
+    /* Top controls */
+    .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; }
+    .viewbtns { display: inline-flex; border: 1px solid #ccc; border-radius: 8px; overflow: hidden; }
+    .viewbtns button {
+      border: none; background: #fff; color: #444;
+      padding: 0.5rem 1rem; font-size: 0.9rem; cursor: pointer;
+      border-right: 1px solid #ccc;
+    }
+    .viewbtns button:last-child { border-right: none; }
+    .viewbtns button.active { background: #2563eb; color: #fff; }
+    .viewbtns button:not(.active):hover { background: #eef2ff; }
+
+    .pager { display: inline-flex; align-items: center; gap: 0.5rem; }
+    .pager button {
+      border: 1px solid #ccc; background: #fff; border-radius: 6px;
+      width: 2rem; height: 2rem; font-size: 1rem; cursor: pointer; color: #444;
+    }
+    .pager button:disabled { opacity: 0.35; cursor: default; }
+    .pager .label { min-width: 12rem; text-align: center; font-size: 0.95rem; font-weight: 600; }
+    .pager .today { width: auto; padding: 0 0.6rem; font-size: 0.8rem; }
+    .hidden { display: none !important; }
+
+    /* Route cards */
     .route-block {
       background: #fff;
       border-radius: 8px;
@@ -26,99 +50,489 @@
       box-shadow: 0 1px 4px rgba(0,0,0,0.08);
       max-width: 900px;
     }
-    .route-block h2 { font-size: 1rem; margin-bottom: 1rem; color: #444; }
-    .status { margin-top: 0.75rem; font-size: 0.85rem; color: #888; }
+    .route-block h2 { font-size: 1rem; margin-bottom: 0.25rem; color: #444; }
+    .route-block .sub { font-size: 0.8rem; color: #999; margin-bottom: 1rem; }
+    .status { margin-top: 0.5rem; font-size: 0.8rem; color: #999; }
+
+    .chart-wrap { position: relative; height: 320px; }
+    .day-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 1.25rem; margin-bottom: 0.5rem; font-size: 0.8rem; color: #444; }
+    .day-legend .legend-item { display: inline-flex; align-items: center; gap: 0.4rem; }
+    .day-legend svg { display: block; overflow: visible; }
+    .hscroll { overflow-x: auto; overflow-y: hidden; }
+    .hscroll .chart-inner { height: 320px; position: relative; }
+    /* Fixed y-axis alongside the horizontally-scrolling "All" chart */
+    .all-layout { display: flex; align-items: stretch; }
+    .yaxis-col { position: relative; flex: none; width: 46px; height: 320px; }
+    .yaxis-col .ytick { position: absolute; right: 4px; transform: translateY(-50%); font-size: 11px; color: #666; white-space: nowrap; }
+    .yaxis-col .yaxis-title { position: absolute; top: 0; right: 4px; font-size: 10px; color: #999; }
+
+    /* Week small-multiples */
+    .weeks { max-height: 70vh; overflow-y: auto; display: flex; flex-direction: column; gap: 1.25rem; padding-right: 0.25rem; }
+    .week-row .week-label { font-size: 0.8rem; color: #666; margin-bottom: 0.25rem; }
+    .week-row .chart-wrap { height: 150px; }
+    .empty { font-size: 0.85rem; color: #999; padding: 2rem 0; text-align: center; }
   </style>
 </head>
 <body>
   <h1>Drive Time Tracker</h1>
+
+  <div class="toolbar">
+    <div class="viewbtns" id="viewbtns">
+      <button data-view="day" class="active">Day</button>
+      <button data-view="week">Week</button>
+      <button data-view="all">All</button>
+    </div>
+    <div class="pager hidden" id="daypager">
+      <button id="dayPrev" title="Previous day">◀</button>
+      <span class="label" id="dayLabel">—</span>
+      <button id="dayNext" title="Next day">▶</button>
+      <button class="today" id="dayToday">Today</button>
+    </div>
+  </div>
+
   <div id="charts"></div>
 
   <script>
     const COLORS = ["#2563eb", "#dc2626"];
+    const TZ = "America/Los_Angeles";
+    const DAY_MS = 86400000;
+    const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-    async function loadRoute(route, color) {
-      const block = document.createElement("div");
-      block.className = "route-block";
-
-      const title = document.createElement("h2");
-      title.textContent = route.label;
-      block.appendChild(title);
-
-      const canvas = document.createElement("canvas");
-      block.appendChild(canvas);
-
-      const status = document.createElement("div");
-      status.className = "status";
-      status.textContent = "Loading…";
-      block.appendChild(status);
-
-      document.getElementById("charts").appendChild(block);
-
-      let rows = [];
-      try {
-        const res = await fetch(`data/${route.id}.jsonl`);
-        const text = await res.text();
-        rows = text.trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
-      } catch (e) {
-        status.textContent = `Error loading data: ${e.message}`;
-        return;
+    // ---- Pacific-time helpers -------------------------------------------------
+    // Break a Date into Pacific wall-clock parts, independent of the viewer's zone.
+    const pacFmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, weekday: "short",
+    });
+    function pacParts(date) {
+      const p = {};
+      for (const part of pacFmt.formatToParts(date)) {
+        if (part.type !== "literal") p[part.type] = part.value;
       }
+      const hour = parseInt(p.hour, 10) % 24; // some engines emit "24" at midnight
+      return {
+        dateStr: `${p.year}-${p.month}-${p.day}`,       // Pacific calendar date
+        weekday: p.weekday,                              // "Mon".."Sun"
+        dow: (WEEKDAYS.indexOf(p.weekday) + 7) % 7,      // Mon=0 .. Sun=6
+        hours: hour + parseInt(p.minute, 10) / 60 + parseInt(p.second, 10) / 3600,
+      };
+    }
+    // Pull Y-M-D apart and shift by whole days, staying on the calendar (no DST drift).
+    function shiftDateStr(str, days) {
+      const d = new Date(str + "T12:00:00Z");
+      d.setUTCDate(d.getUTCDate() + days);
+      return d.toISOString().slice(0, 10);
+    }
+    function diffDays(a, b) {
+      return Math.round((Date.parse(b + "T12:00:00Z") - Date.parse(a + "T12:00:00Z")) / DAY_MS);
+    }
+    // Monday (Pacific) that starts the week containing the given Pacific date.
+    function mondayOf(dateStr, dow) { return shiftDateStr(dateStr, -dow); }
+    function prettyDate(dateStr) {
+      const d = new Date(dateStr + "T12:00:00Z");
+      return d.toLocaleDateString(undefined, { timeZone: "UTC", weekday: "long", month: "short", day: "numeric" });
+    }
+    function prettyDateShort(dateStr) {
+      const d = new Date(dateStr + "T12:00:00Z");
+      return d.toLocaleDateString(undefined, { timeZone: "UTC", month: "short", day: "numeric" });
+    }
+    function hourLabel(h) {
+      h = Math.round(h) % 24;
+      const ap = h < 12 ? "AM" : "PM";
+      let hr = h % 12; if (hr === 0) hr = 12;
+      return `${hr} ${ap}`;
+    }
+    function clockLabel(h) {
+      let hh = Math.floor(h), mm = Math.round((h - hh) * 60);
+      if (mm === 60) { mm = 0; hh += 1; }
+      const ap = hh < 12 || hh === 24 ? "AM" : "PM";
+      let d = hh % 12; if (d === 0) d = 12;
+      return `${d}:${String(mm).padStart(2, "0")} ${ap}`;
+    }
+    function hexToRgba(hex, a) {
+      const n = parseInt(hex.slice(1), 16);
+      return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+    }
+    function isDayLine(v) { return Math.abs(v - Math.round(v)) < 1e-6; }   // integer day boundary
 
-      if (rows.length === 0) {
-        status.textContent = "No data yet — check back after the first scheduled run.";
-        return;
-      }
+    // ---- State ----------------------------------------------------------------
+    const state = { view: "day", dayOffset: 0 }; // dayOffset: 0 = today (PT)
+    let routes = [];
+    const dataByRoute = {};     // id -> [{ts:Date, minutes, pac}]
+    const charts = [];          // live Chart instances (destroyed on re-render)
+    let todayStr, earliestStr;  // Pacific date bounds for the day pager
 
-      const latest = rows[rows.length - 1];
-      status.textContent = `Last updated: ${new Date(latest.timestamp).toLocaleString()} · ${latest.minutes} min · ${rows.length} samples`;
+    function destroyCharts() {
+      while (charts.length) charts.pop().destroy();
+    }
 
-      new Chart(canvas, {
-        type: "line",
-        data: {
-          labels: rows.map(r => new Date(r.timestamp)),
-          datasets: [{
-            label: "Drive time (min)",
-            data: rows.map(r => r.minutes),
-            borderColor: color,
-            backgroundColor: color.replace(")", ", 0.08)").replace("rgb", "rgba"),
-            borderWidth: 2,
-            pointRadius: rows.length > 200 ? 0 : 3,
-            tension: 0.2,
-            fill: true,
-          }],
+    // ---- Renderers ------------------------------------------------------------
+    function baseOptions(extra) {
+      return Object.assign({
+        responsive: true, maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: ctx => `${ctx.parsed.y} min` } },
         },
-        options: {
-          responsive: true,
+        scales: {
+          y: { title: { display: true, text: "Minutes" }, beginAtZero: false },
+        },
+      }, extra);
+    }
+
+    function renderDay(route, card, color) {
+      const dateStr = shiftDateStr(todayStr, state.dayOffset);
+      const body = card.querySelector(".card-body");
+      body.innerHTML = "";
+
+      // The selected day, plus the same weekday from each earlier week. Built
+      // oldest-first so the selected day draws on top; older weeks fade out.
+      const dates = [];
+      for (let d = dateStr; d >= earliestStr; d = shiftDateStr(d, -7)) dates.push(d);
+      dates.reverse();
+
+      const datasets = [];
+      for (const d of dates) {
+        const rows = dataByRoute[route.id].filter(r => r.pac.dateStr === d);
+        if (rows.length === 0) continue;
+        const isSel = d === dateStr;
+        const weeksBack = Math.round(diffDays(d, dateStr) / 7);
+        const alpha = isSel ? 1 : Math.max(0.14, 0.7 * Math.pow(0.4, weeksBack - 1));
+        const suffix = isSel ? (state.dayOffset === 0 ? " · today" : " · selected") : "";
+        datasets.push({
+          label: prettyDateShort(d) + suffix,
+          data: rows.map(r => ({ x: r.pac.hours, y: r.minutes })),
+          borderColor: hexToRgba(color, alpha),
+          backgroundColor: isSel ? hexToRgba(color, 0.08) : "transparent",
+          borderWidth: isSel ? 2.5 : 1.5,
+          borderDash: weeksBack >= 2 ? [6, 4] : [],   // antepenultimate and older: dashed
+          pointRadius: isSel ? 3 : 0,
+          tension: 0.2, fill: isSel,
+        });
+      }
+
+      if (datasets.length === 0) {
+        body.innerHTML = `<div class="empty">No samples on ${prettyDate(dateStr)}.</div>`;
+        return;
+      }
+
+      // Custom legend: a short line sample per entry (newest first) so the color,
+      // thickness, and dash match what's drawn on the chart.
+      if (datasets.length > 1) {
+        const legend = document.createElement("div");
+        legend.className = "day-legend";
+        for (let i = datasets.length - 1; i >= 0; i--) {
+          const ds = datasets[i];
+          const dash = ds.borderDash && ds.borderDash.length ? `stroke-dasharray="${ds.borderDash.join(",")}"` : "";
+          const item = document.createElement("span");
+          item.className = "legend-item";
+          item.innerHTML =
+            `<svg width="30" height="12" aria-hidden="true">` +
+            `<line x1="2" y1="6" x2="28" y2="6" stroke="${ds.borderColor}" stroke-width="${ds.borderWidth}" stroke-linecap="round" ${dash}/>` +
+            `</svg><span>${ds.label}</span>`;
+          legend.appendChild(item);
+        }
+        body.appendChild(legend);
+      }
+
+      const wrap = document.createElement("div");
+      wrap.className = "chart-wrap";
+      const canvas = document.createElement("canvas");
+      wrap.appendChild(canvas);
+      body.appendChild(wrap);
+
+      charts.push(new Chart(canvas, {
+        type: "line",
+        data: { datasets },
+        options: baseOptions({
           scales: {
             x: {
-              type: "time",
-              time: { tooltipFormat: "MMM d, h:mm a" },
-              title: { display: true, text: "Time" },
-              min: new Date(Math.max(
-                new Date(rows[0].timestamp).getTime(),
-                Date.now() - 7 * 24 * 60 * 60 * 1000
-              )).toISOString(),
+              type: "linear", min: 0, max: 24,
+              title: { display: true, text: "Time of day (Pacific)" },
+              ticks: { stepSize: 4, autoSkip: false, maxRotation: 0, callback: hourLabel },
             },
-            y: {
-              title: { display: true, text: "Minutes" },
-              beginAtZero: false,
+            y: { title: { display: true, text: "Minutes" }, beginAtZero: false },
+          },
+          plugins: {
+            legend: { display: false },   // replaced by a custom HTML legend with line samples
+            tooltip: {
+              callbacks: {
+                title: items => `${items[0].dataset.label.split(" · ")[0]} · ${clockLabel(items[0].parsed.x)}`,
+                label: ctx => `${ctx.parsed.y} min`,
+              },
             },
+          },
+        }),
+      }));
+    }
+
+    function renderWeek(route, card, color) {
+      const rows = dataByRoute[route.id];
+      const body = card.querySelector(".card-body");
+      body.innerHTML = "";
+
+      // Group by Monday-of-week (Pacific), newest week first.
+      const byWeek = new Map();
+      for (const r of rows) {
+        const mon = mondayOf(r.pac.dateStr, r.pac.dow);
+        if (!byWeek.has(mon)) byWeek.set(mon, []);
+        byWeek.get(mon).push(r);
+      }
+      const weeks = [...byWeek.keys()].sort(); // oldest first → current week at bottom
+      if (weeks.length === 0) { body.innerHTML = `<div class="empty">No data yet.</div>`; return; }
+
+      const stack = document.createElement("div");
+      stack.className = "weeks";
+      body.appendChild(stack);
+
+      for (const mon of weeks) {
+        const sun = shiftDateStr(mon, 6);
+        const row = document.createElement("div");
+        row.className = "week-row";
+        row.innerHTML = `<div class="week-label">Week of ${prettyDateShort(mon)} – ${prettyDateShort(sun)}</div>`;
+        const wrap = document.createElement("div");
+        wrap.className = "chart-wrap";
+        const canvas = document.createElement("canvas");
+        wrap.appendChild(canvas);
+        row.appendChild(wrap);
+        stack.appendChild(row);
+
+        const pts = byWeek.get(mon)
+          .map(r => ({ x: r.pac.dow + r.pac.hours / 24, y: r.minutes, r }))
+          .sort((a, b) => a.x - b.x);
+
+        charts.push(new Chart(canvas, {
+          type: "line",
+          data: { datasets: [{
+            data: pts, borderColor: color, backgroundColor: color + "14",
+            borderWidth: 2, pointRadius: 2, tension: 0.2, fill: true,
+          }] },
+          options: baseOptions({
+            scales: {
+              x: {
+                type: "linear", min: 0, max: 7,
+                // Hash marks every 4 hours; darker line + weekday label at each day boundary.
+                afterBuildTicks: axis => { const t = []; for (let i = 0; i <= 42; i++) t.push({ value: i / 6 }); axis.ticks = t; },
+                grid: { drawTicks: true, tickLength: 5, color: c => (isDayLine(c.tick.value) ? "#d5d5d5" : "#f2f2f2") },
+                ticks: {
+                  autoSkip: false, maxRotation: 0, font: { size: 9 },
+                  // Weekday at each day boundary, plus 8a/4p; other 4-hour ticks stay unlabeled hash marks.
+                  callback: v => {
+                    if (isDayLine(v)) return WEEKDAYS[Math.round(v)] || "";
+                    const hour = Math.round((v - Math.floor(v)) * 24);
+                    return hour === 8 ? "8a" : hour === 16 ? "4p" : "";
+                  },
+                },
+              },
+              y: { title: { display: true, text: "Min" }, beginAtZero: false },
+            },
+            plugins: {
+              legend: { display: false },
+              tooltip: { callbacks: {
+                title: items => {
+                  const p = items[0].raw.r.pac;
+                  return `${p.weekday} ${hourLabel(p.hours)}`;
+                },
+                label: ctx => `${ctx.parsed.y} min`,
+              } },
+            },
+          }),
+        }));
+      }
+      // Default the scroll to the current week at the bottom. Row heights are
+      // fixed in CSS, so this is correct synchronously; the rAF re-affirms it
+      // after any late layout shift.
+      stack.scrollTop = stack.scrollHeight;
+      requestAnimationFrame(() => { stack.scrollTop = stack.scrollHeight; });
+    }
+
+    function renderAll(route, card, color) {
+      const rows = dataByRoute[route.id];
+      const body = card.querySelector(".card-body");
+      body.innerHTML = "";
+      if (rows.length === 0) { body.innerHTML = `<div class="empty">No data yet.</div>`; return; }
+
+      // x = days (fractional) since local midnight of the first sample's day, so
+      // ticks can sit exactly on each day's midnight / 8 AM / 4 PM.
+      const base = new Date(rows[0].ts); base.setHours(0, 0, 0, 0);
+      const baseMs = base.getTime();
+      const toX = t => (t - baseMs) / DAY_MS;
+      const spanDays = Math.max(1, Math.ceil(toX(rows[rows.length - 1].ts.getTime())));
+      const width = Math.max(700, Math.round(spanDays * 150));
+
+      const layout = document.createElement("div");
+      layout.className = "all-layout";
+      const yaxisCol = document.createElement("div");
+      yaxisCol.className = "yaxis-col";
+      const scroller = document.createElement("div");
+      scroller.className = "hscroll";
+      scroller.style.flex = "1";
+      const inner = document.createElement("div");
+      inner.className = "chart-inner";
+      inner.style.width = width + "px";
+      const canvas = document.createElement("canvas");
+      inner.appendChild(canvas);
+      scroller.appendChild(inner);
+      layout.appendChild(yaxisCol);
+      layout.appendChild(scroller);
+      body.appendChild(layout);
+
+      const chart = new Chart(canvas, {
+        type: "line",
+        data: { datasets: [{
+          data: rows.map(r => ({ x: toX(r.ts.getTime()), y: r.minutes, ts: r.ts.getTime() })),
+          borderColor: color, backgroundColor: color + "14",
+          borderWidth: 2, pointRadius: 2, tension: 0.2, fill: true,
+        }] },
+        options: baseOptions({
+          scales: {
+            x: {
+              type: "linear", min: 0, max: spanDays,
+              title: { display: true, text: "Date" },
+              // Hash marks every 4 hours; only midnight (dated), 8 AM, and 4 PM get labels.
+              afterBuildTicks: axis => {
+                const t = [];
+                for (let i = 0; i <= spanDays * 6; i++) t.push({ value: i / 6 });
+                axis.ticks = t;
+              },
+              grid: { color: c => (isDayLine(c.tick.value) ? "#d5d5d5" : "#f2f2f2") },
+              ticks: {
+                maxRotation: 0, autoSkip: false, font: { size: 10 },
+                callback: v => {
+                  if (isDayLine(v)) {
+                    const dt = new Date(baseMs); dt.setDate(dt.getDate() + Math.round(v));
+                    return dt.toLocaleDateString(undefined, { weekday: "short", month: "numeric", day: "numeric" });
+                  }
+                  const hour = Math.round((v - Math.floor(v)) * 24);
+                  return hour === 8 ? "8 AM" : hour === 16 ? "4 PM" : "";
+                },
+              },
+            },
+            y: { ticks: { display: false }, border: { display: false }, title: { display: false }, beginAtZero: false },
           },
           plugins: {
             legend: { display: false },
-            tooltip: { callbacks: { label: ctx => `${ctx.parsed.y} min` } },
+            tooltip: { callbacks: {
+              title: items => new Date(items[0].raw.ts).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
+              label: ctx => `${ctx.parsed.y} min`,
+            } },
           },
-        },
+        }),
       });
+      charts.push(chart);
+
+      // The in-canvas y-axis lives at the far left of the wide canvas and scrolls
+      // out of view, so mirror its ticks into a fixed column on the left.
+      const yScale = chart.scales.y;
+      const yTitle = document.createElement("div");
+      yTitle.className = "yaxis-title";
+      yTitle.textContent = "min";
+      yaxisCol.appendChild(yTitle);
+      for (const tick of yScale.ticks) {
+        const py = yScale.getPixelForValue(tick.value);
+        if (py < 12 || py > inner.offsetHeight) continue;
+        const el = document.createElement("div");
+        el.className = "ytick";
+        el.style.top = py + "px";
+        el.textContent = yScale.getLabelForValue(tick.value);
+        yaxisCol.appendChild(el);
+      }
+
+      // Strip width is fixed inline, so scrollWidth is known synchronously.
+      scroller.scrollLeft = scroller.scrollWidth;
+      requestAnimationFrame(() => { scroller.scrollLeft = scroller.scrollWidth; });
     }
 
-    async function load() {
-      const configRes = await fetch("config.json");
-      const config = await configRes.json();
-      for (let i = 0; i < config.routes.length; i++) {
-        await loadRoute(config.routes[i], COLORS[i % COLORS.length]);
+    // ---- Orchestration --------------------------------------------------------
+    function render() {
+      destroyCharts();
+      const renderer = state.view === "day" ? renderDay : state.view === "week" ? renderWeek : renderAll;
+      routes.forEach((route, i) => {
+        const card = document.getElementById(`card-${route.id}`);
+        renderer(route, card, COLORS[i % COLORS.length]);
+      });
+      updatePager();
+    }
+
+    function updatePager() {
+      const pager = document.getElementById("daypager");
+      pager.classList.toggle("hidden", state.view !== "day");
+      if (state.view !== "day") return;
+      const dateStr = shiftDateStr(todayStr, state.dayOffset);
+      document.getElementById("dayLabel").textContent =
+        state.dayOffset === 0 ? `Today · ${prettyDate(dateStr)}` : prettyDate(dateStr);
+      document.getElementById("dayNext").disabled = state.dayOffset >= 0;
+      document.getElementById("dayToday").disabled = state.dayOffset === 0;
+      const minOffset = -diffDays(earliestStr, todayStr);
+      document.getElementById("dayPrev").disabled = state.dayOffset <= minOffset;
+    }
+
+    function setView(view) {
+      state.view = view;
+      for (const b of document.querySelectorAll("#viewbtns button")) {
+        b.classList.toggle("active", b.dataset.view === view);
       }
+      render();
+    }
+
+    // ---- Boot -----------------------------------------------------------------
+    async function load() {
+      const config = await (await fetch("config.json")).json();
+      routes = config.routes;
+
+      const container = document.getElementById("charts");
+      container.style.display = "flex";
+      container.style.flexDirection = "column";
+      container.style.gap = "1.5rem";
+
+      for (const route of routes) {
+        const res = await fetch(`data/${route.id}.jsonl`);
+        const text = await res.text();
+        const rows = text.trim().split("\n").filter(Boolean).map(l => {
+          const o = JSON.parse(l);
+          const ts = new Date(o.timestamp);
+          return { ts, minutes: o.minutes, pac: pacParts(ts) };
+        }).sort((a, b) => a.ts - b.ts);
+        dataByRoute[route.id] = rows;
+
+        const card = document.createElement("div");
+        card.className = "route-block";
+        card.id = `card-${route.id}`;
+        const latest = rows[rows.length - 1];
+        const updated = latest ? `Last updated ${latest.ts.toLocaleString()} · ${rows.length} samples` : "No data yet";
+        card.innerHTML = `<h2>${route.label}</h2><div class="sub">${updated}</div><div class="card-body"></div>`;
+        container.appendChild(card);
+      }
+
+      // Date bounds (Pacific) for the day pager.
+      todayStr = pacParts(new Date()).dateStr;
+      earliestStr = todayStr;
+      for (const id in dataByRoute) {
+        for (const r of dataByRoute[id]) {
+          if (r.pac.dateStr < earliestStr) earliestStr = r.pac.dateStr;
+        }
+      }
+
+      // If today has no samples yet, open the most recent day that does.
+      const hasToday = Object.values(dataByRoute).some(rows => rows.some(r => r.pac.dateStr === todayStr));
+      if (!hasToday) {
+        let latestStr = earliestStr;
+        for (const id in dataByRoute) {
+          for (const r of dataByRoute[id]) if (r.pac.dateStr > latestStr) latestStr = r.pac.dateStr;
+        }
+        state.dayOffset = -diffDays(latestStr, todayStr);
+      }
+
+      // Wire up controls.
+      for (const b of document.querySelectorAll("#viewbtns button")) {
+        b.addEventListener("click", () => setView(b.dataset.view));
+      }
+      document.getElementById("dayPrev").addEventListener("click", () => { state.dayOffset--; render(); });
+      document.getElementById("dayNext").addEventListener("click", () => { if (state.dayOffset < 0) { state.dayOffset++; render(); } });
+      document.getElementById("dayToday").addEventListener("click", () => { state.dayOffset = 0; render(); });
+
+      render();
     }
 
     load().catch(err => {
