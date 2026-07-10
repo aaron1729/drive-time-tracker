@@ -1,0 +1,3 @@
+# Append-only sample logs: keep both sides' lines when concurrent runs
+# each append a sample, instead of producing a merge/rebase conflict.
+data/*.jsonl merge=union

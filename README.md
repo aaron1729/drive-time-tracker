@@ -1,6 +1,6 @@
 # Drive Time Tracker
 
-Polls Google Maps driving time between two points every 15 minutes and plots the history as a line chart on a GitHub Pages site.
+Polls Google Maps driving time for one or more routes on a schedule and plots the history as a line chart per route on a GitHub Pages site.
 
 ## Setup
 
@@ -14,19 +14,24 @@ GOOGLE_MAPS_API_KEY
 
 The key needs the **Routes API** enabled. No other APIs required.
 
-### 2. Set your addresses
+### 2. Set your routes
 
-Edit [`config.json`](config.json):
+Edit [`config.json`](config.json). It holds a list of routes, each with a unique `id` (used for its data filename), an `origin`, a `destination`, and a `label` shown on the chart:
 
 ```json
 {
-  "origin": "Your starting address",
-  "destination": "Your ending address",
-  "label": "Display name for the chart"
+  "routes": [
+    {
+      "id": "home-to-work",
+      "origin": "Your starting address",
+      "destination": "Your ending address",
+      "label": "Home → Work"
+    }
+  ]
 }
 ```
 
-Any geocodable address string works (street address, landmark name, etc.).
+Add as many routes as you like — each gets its own line chart. Any geocodable address string works (street address, landmark name, etc.).
 
 ### 3. Enable GitHub Pages
 
@@ -42,7 +47,7 @@ Edit the cron expression in [`.github/workflows/fetch.yml`](.github/workflows/fe
 - cron: "*/15 * * * *"   # every 15 minutes
 ```
 
-Note: GitHub Actions scheduled jobs can run with a few minutes of delay under load — that's normal.
+Note: GitHub throttles scheduled jobs on busy/free-tier accounts — runs are often delayed and some scheduled ticks are dropped entirely, so the real cadence is usually coarser than the cron implies (expect roughly hourly rather than every 15 minutes). Occasionally a run may be cancelled before it starts if no runner is available; the next run recovers on its own.
 
 ## Running manually
 
@@ -50,10 +55,10 @@ You can trigger a one-off fetch from the **Actions** tab → **Fetch drive time*
 
 ## Data format
 
-Drive times are stored in [`data/history.jsonl`](data/history.jsonl) — one JSON object per line:
+Each route's drive times are stored in its own file, `data/<id>.jsonl` (e.g. `data/home-to-work.jsonl`) — one JSON object per line:
 
 ```json
 {"timestamp":"2026-06-24T18:00:00.000Z","minutes":12}
 ```
 
-The file is committed back to the repo automatically after each fetch.
+The files are committed back to the repo automatically after each fetch.
