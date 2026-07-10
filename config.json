@@ -2,15 +2,45 @@
   "routes": [
     {
       "id": "sf-to-palo-alto",
+      "group": "SF ↔ Palo Alto",
       "origin": "560 Divisadero St, San Francisco, CA 94117",
       "destination": "535 Ramona St, Palo Alto, CA 94301",
       "label": "SF → Palo Alto"
     },
     {
       "id": "palo-alto-to-sf",
+      "group": "SF ↔ Palo Alto",
       "origin": "535 Ramona St, Palo Alto, CA 94301",
       "destination": "560 Divisadero St, San Francisco, CA 94117",
       "label": "Palo Alto → SF"
+    },
+    {
+      "id": "albany-to-palo-alto",
+      "group": "Albany ↔ Palo Alto",
+      "origin": "1133 Solano Ave, Albany, CA 94706",
+      "destination": "535 Ramona St, Palo Alto, CA 94301",
+      "label": "Albany → Palo Alto"
+    },
+    {
+      "id": "palo-alto-to-albany",
+      "group": "Albany ↔ Palo Alto",
+      "origin": "535 Ramona St, Palo Alto, CA 94301",
+      "destination": "1133 Solano Ave, Albany, CA 94706",
+      "label": "Palo Alto → Albany"
+    },
+    {
+      "id": "montclair-to-palo-alto",
+      "group": "Montclair ↔ Palo Alto",
+      "origin": "6126 Medau Pl, Oakland, CA 94611",
+      "destination": "535 Ramona St, Palo Alto, CA 94301",
+      "label": "Montclair → Palo Alto"
+    },
+    {
+      "id": "palo-alto-to-montclair",
+      "group": "Montclair ↔ Palo Alto",
+      "origin": "535 Ramona St, Palo Alto, CA 94301",
+      "destination": "6126 Medau Pl, Oakland, CA 94611",
+      "label": "Palo Alto → Montclair"
     }
   ]
 }

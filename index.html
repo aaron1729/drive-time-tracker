@@ -50,8 +50,12 @@
       box-shadow: 0 1px 4px rgba(0,0,0,0.08);
       max-width: 900px;
     }
-    .route-block h2 { font-size: 1rem; margin-bottom: 0.25rem; color: #444; }
-    .route-block .sub { font-size: 0.8rem; color: #999; margin-bottom: 1rem; }
+    .route-block h2 { font-size: 1.05rem; margin-bottom: 1rem; color: #222; }
+    /* Each direction (leg) of a pair, stacked within one card */
+    .leg + .leg { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid #eee; }
+    .leg-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.6rem; margin-bottom: 0.75rem; }
+    .leg-label { font-size: 0.95rem; font-weight: 600; color: #444; }
+    .leg-head .sub { font-size: 0.8rem; color: #999; }
     .status { margin-top: 0.5rem; font-size: 0.8rem; color: #999; }
 
     .chart-wrap { position: relative; height: 320px; }
@@ -159,6 +163,7 @@
     const state = { view: "day", dayOffset: 0 }; // dayOffset: 0 = today (PT)
     let routes = [];
     const dataByRoute = {};     // id -> [{ts:Date, minutes, pac}]
+    const routeColor = {};      // id -> line color (per direction within a card)
     const charts = [];          // live Chart instances (destroyed on re-render)
     let todayStr, earliestStr;  // Pacific date bounds for the day pager
 
@@ -448,10 +453,10 @@
     function render() {
       destroyCharts();
       const renderer = state.view === "day" ? renderDay : state.view === "week" ? renderWeek : renderAll;
-      routes.forEach((route, i) => {
-        const card = document.getElementById(`card-${route.id}`);
-        renderer(route, card, COLORS[i % COLORS.length]);
-      });
+      for (const route of routes) {
+        const leg = document.getElementById(`leg-${route.id}`);
+        renderer(route, leg, routeColor[route.id]);
+      }
       updatePager();
     }
 
@@ -487,22 +492,51 @@
       container.style.gap = "1.5rem";
 
       for (const route of routes) {
-        const res = await fetch(`data/${route.id}.jsonl`);
-        const text = await res.text();
-        const rows = text.trim().split("\n").filter(Boolean).map(l => {
-          const o = JSON.parse(l);
-          const ts = new Date(o.timestamp);
-          return { ts, minutes: o.minutes, pac: pacParts(ts) };
-        }).sort((a, b) => a.ts - b.ts);
+        // A route added to config.json has no data/<id>.jsonl until the first
+        // scheduled run creates it, so tolerate a missing/empty file (404).
+        let rows = [];
+        try {
+          const res = await fetch(`data/${route.id}.jsonl`);
+          if (res.ok) {
+            const text = await res.text();
+            rows = text.trim().split("\n").filter(Boolean).map(l => {
+              const o = JSON.parse(l);
+              const ts = new Date(o.timestamp);
+              return { ts, minutes: o.minutes, pac: pacParts(ts) };
+            }).sort((a, b) => a.ts - b.ts);
+          }
+        } catch (e) {
+          console.warn(`Could not load data for ${route.id}:`, e.message);
+        }
         dataByRoute[route.id] = rows;
+      }
 
-        const card = document.createElement("div");
-        card.className = "route-block";
-        card.id = `card-${route.id}`;
+      // One card per group; each direction (leg) becomes its own labelled chart.
+      const groupCards = {};
+      for (const route of routes) {
+        const key = route.group || route.id;
+        let card = groupCards[key];
+        if (!card) {
+          card = document.createElement("div");
+          card.className = "route-block";
+          const h2 = document.createElement("h2");
+          h2.textContent = route.group || route.label;
+          card.appendChild(h2);
+          groupCards[key] = card;
+          container.appendChild(card);
+        }
+        const rows = dataByRoute[route.id];
         const latest = rows[rows.length - 1];
         const updated = latest ? `Last updated ${latest.ts.toLocaleString()} · ${rows.length} samples` : "No data yet";
-        card.innerHTML = `<h2>${route.label}</h2><div class="sub">${updated}</div><div class="card-body"></div>`;
-        container.appendChild(card);
+        routeColor[route.id] = COLORS[card.querySelectorAll(".leg").length % COLORS.length];
+
+        const leg = document.createElement("div");
+        leg.className = "leg";
+        leg.id = `leg-${route.id}`;
+        leg.innerHTML =
+          `<div class="leg-head"><span class="leg-label" style="color:${routeColor[route.id]}">${route.label}</span>` +
+          `<span class="sub">${updated}</span></div><div class="card-body"></div>`;
+        card.appendChild(leg);
       }
 
       // Date bounds (Pacific) for the day pager.
