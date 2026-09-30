@@ -127,12 +127,12 @@ That's it — Cloudflare now fires the dispatch every 30 minutes. Cloudflare cro
 
 The fetch uses the Routes API with `routingPreference: "TRAFFIC_AWARE"`, which bills at the **Compute Routes Pro** SKU: **$10 per 1,000 calls**, with the **first 10,000 calls per month free** (Google removed the old shared $200/month credit on 2025-03-01 in favor of per-SKU free allowances).
 
-Each run makes one call per route in [`config.json`](config.json). Keep `routes × calls-per-month` under 10,000 to stay in the free tier:
+Each run makes one call per **polled** route in [`config.json`](config.json). A route with `"fetch": false` is kept in the config — so the app still charts its historical data — but is no longer polled, so it costs nothing going forward. Keep `polled routes × calls-per-month` under 10,000 to stay in the free tier:
 
 - **4 routes every 30 min** = 4 × 48/day × ~30.4 = ~5,800 calls/month → **free**.
 - **6 routes every 15 min** = ~17,500 calls/month → ~7,500 billable → **~$75/month**.
 
-Levers if you approach the cap: poll less often (the cron above), drop routes, restrict to certain hours, or — at the cost of accuracy — switch to `TRAFFIC_UNAWARE` (the cheaper $5 Essentials SKU).
+Levers if you approach the cap: poll less often (the cron above), stop polling a route with `"fetch": false` (keeps its history visible), restrict to certain hours, or — at the cost of accuracy — switch to `TRAFFIC_UNAWARE` (the cheaper $5 Essentials SKU).
 
 ## Running manually
 

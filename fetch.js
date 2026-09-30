@@ -81,6 +81,12 @@ function fetchRoute(route) {
 (async () => {
   let anyError = false;
   for (const route of config.routes) {
+    // Routes with "fetch": false are kept in config (so the app still shows
+    // their historical data) but no longer polled — see README "Cost".
+    if (route.fetch === false) {
+      console.log(`SKIP [${route.id}]: fetch disabled in config`);
+      continue;
+    }
     try {
       await fetchRoute(route);
     } catch (e) {
