@@ -46,16 +46,16 @@ The workflow can be launched two ways, and both are enabled:
 1. **GitHub's own `schedule` cron** in [`.github/workflows/fetch.yml`](.github/workflows/fetch.yml):
 
    ```yaml
-   - cron: "*/15 * * * *"   # every 15 minutes
+   - cron: "*/30 * * * *"   # every 30 minutes
    ```
 
-   Note: GitHub heavily throttles scheduled jobs on free-tier accounts — many ticks are delayed or dropped, so in practice this alone yields only a handful of runs per day (observed ~6–8/day), not every 15 minutes. This is kept as a free, zero-maintenance backup.
+   Note: GitHub heavily throttles scheduled jobs on free-tier accounts — many ticks are delayed or dropped, so in practice this alone yields only a handful of runs per day (observed ~6–8/day), not every 30 minutes. This is kept as a free, zero-maintenance backup.
 
-2. **An external trigger for reliable 15-minute cadence** (what actually drives the cadence). A scheduler outside GitHub calls the workflow's `workflow_dispatch` endpoint on a cron; API-triggered runs are *not* subject to the `schedule` throttling above.
+2. **An external trigger for reliable 30-minute cadence** (what actually drives the cadence). A scheduler outside GitHub calls the workflow's `workflow_dispatch` endpoint on a cron; API-triggered runs are *not* subject to the `schedule` throttling above.
 
 ### External trigger (Cloudflare Worker)
 
-If you only want the built-in `schedule` cron, you can stop here — it works with zero extra setup, it's just unreliable (see above). For dependable 15-minute cadence, add a free external scheduler that calls the dispatch endpoint. Here's the full setup using a Cloudflare Worker (all on the free plan):
+If you only want the built-in `schedule` cron, you can stop here — it works with zero extra setup, it's just unreliable (see above). For dependable 30-minute cadence, add a free external scheduler that calls the dispatch endpoint. Here's the full setup using a Cloudflare Worker (all on the free plan):
 
 1. **Create a GitHub token.** In **GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens**, generate a token scoped to **only this repository**, with **Repository permissions → Actions: Read and write** (write is what allows dispatching a run; `Metadata: Read` is added automatically). Copy it — you'll paste it into Cloudflare, and it never goes in the repo.
 
@@ -119,9 +119,20 @@ If you only want the built-in `schedule` cron, you can stop here — it works wi
 
 6. **Test it** (optional): visit the Worker's `*.workers.dev` URL. You should see `OK: dispatched (GitHub returned 204)`, and a fresh run should appear under the repo's **Actions** tab. (A `Problem: …` message with `401`/`403` means the token or its permissions are off; `404` means the owner/repo/workflow name is wrong.)
 
-7. **Add the cron trigger.** In the Worker's **Settings → Trigger Events → Cron Triggers**, add `*/15 * * * *` (Cloudflare also accepts plain-English intervals). Save.
+7. **Add the cron trigger.** In the Worker's **Settings → Trigger Events → Cron Triggers**, add `*/30 * * * *` (Cloudflare also accepts plain-English intervals). Save.
 
-That's it — Cloudflare now fires the dispatch every 15 minutes. Cloudflare cron goes down to 1-minute granularity on the free plan; the practical limit on polling faster is Google Maps API cost, not the scheduler. And because this is a public repo, the GitHub Actions minutes are free and unlimited.
+That's it — Cloudflare now fires the dispatch every 30 minutes. Cloudflare cron goes down to 1-minute granularity on the free plan; the practical limit on polling faster is Google Maps API cost (see below), not the scheduler. And because this is a public repo, the GitHub Actions minutes are free and unlimited.
+
+## Cost
+
+The fetch uses the Routes API with `routingPreference: "TRAFFIC_AWARE"`, which bills at the **Compute Routes Pro** SKU: **$10 per 1,000 calls**, with the **first 10,000 calls per month free** (Google removed the old shared $200/month credit on 2025-03-01 in favor of per-SKU free allowances).
+
+Each run makes one call per route in [`config.json`](config.json). Keep `routes × calls-per-month` under 10,000 to stay in the free tier:
+
+- **4 routes every 30 min** = 4 × 48/day × ~30.4 = ~5,800 calls/month → **free**.
+- **6 routes every 15 min** = ~17,500 calls/month → ~7,500 billable → **~$75/month**.
+
+Levers if you approach the cap: poll less often (the cron above), drop routes, restrict to certain hours, or — at the cost of accuracy — switch to `TRAFFIC_UNAWARE` (the cheaper $5 Essentials SKU).
 
 ## Running manually
 
