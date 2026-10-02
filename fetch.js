@@ -78,23 +78,32 @@ function fetchRoute(route) {
   });
 }
 
-// Pacific-time quiet window: skip fetching 12am–4am PT. The charts don't need
-// overnight resolution, and this trims API calls. Computed in America/Los_Angeles
-// so it's correct year-round across DST. Gates every trigger path (Cloudflare
-// cron and the GitHub backup schedule alike).
-function pacificHour() {
+// Pacific-time quiet window: skip fetching 12:10am–3:50am PT. The charts don't
+// need overnight resolution, and this trims API calls. The window is offset 10
+// minutes inside the hour so the 12:00am and 4:00am ticks still fire, holding
+// the endpoints of the gap. Computed in America/Los_Angeles so it's correct
+// year-round across DST. Gates every trigger path (Cloudflare cron and the
+// GitHub backup schedule alike).
+const QUIET_START = 0 * 60 + 10; // 12:10am PT, in minutes since midnight
+const QUIET_END = 3 * 60 + 50; //   3:50am PT, in minutes since midnight
+
+function pacificMinutes() {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Los_Angeles",
     hour: "numeric",
+    minute: "numeric",
     hour12: false,
   }).formatToParts(new Date());
-  return parseInt(parts.find((p) => p.type === "hour").value, 10) % 24;
+  const get = (t) => parseInt(parts.find((p) => p.type === t).value, 10);
+  return (get("hour") % 24) * 60 + get("minute");
 }
 
 (async () => {
-  const ph = pacificHour();
-  if (ph >= 0 && ph < 4) {
-    console.log(`SKIP ALL: ${ph}:xx Pacific is within the 12am-4am quiet window`);
+  const mins = pacificMinutes();
+  if (mins >= QUIET_START && mins < QUIET_END) {
+    const hh = String(Math.floor(mins / 60)).padStart(2, "0");
+    const mm = String(mins % 60).padStart(2, "0");
+    console.log(`SKIP ALL: ${hh}:${mm} Pacific is within the 12:10am-3:50am quiet window`);
     return;
   }
 

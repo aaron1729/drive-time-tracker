@@ -132,7 +132,9 @@ Each run makes one call per **polled** route in [`config.json`](config.json). A 
 - **4 routes every 30 min** = 4 × 48/day × ~30.4 = ~5,800 calls/month → **free**.
 - **6 routes every 15 min** = ~17,500 calls/month → ~7,500 billable → **~$75/month**.
 
-Levers if you approach the cap: poll less often (the cron above), stop polling a route with `"fetch": false` (keeps its history visible), restrict to certain hours (`fetch.js` already skips a 12am–4am PT quiet window — adjust `pacificHour()` there), or — at the cost of accuracy — switch to `TRAFFIC_UNAWARE` (the cheaper $5 Essentials SKU).
+Levers if you approach the cap: poll less often (the cron above), stop polling a route with `"fetch": false` (keeps its history visible), restrict to certain hours (see the quiet window below), or — at the cost of accuracy — switch to `TRAFFIC_UNAWARE` (the cheaper $5 Essentials SKU).
+
+**Overnight quiet window.** Regardless of which trigger fires it, `fetch.js` makes no API calls between **12:10am and 3:50am Pacific** (computed in `America/Los_Angeles`, so it's DST-correct year-round). The window is deliberately offset 10 minutes inside the hour so that the **12:00am and 4:00am ticks still fire** — holding the endpoints of the gap — while the interior half-hour ticks are skipped. During the window the run still completes successfully (it just logs `SKIP ALL` and exits). To change it, edit `QUIET_START` / `QUIET_END` in `fetch.js`.
 
 ## Running manually
 
