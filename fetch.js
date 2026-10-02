@@ -78,7 +78,26 @@ function fetchRoute(route) {
   });
 }
 
+// Pacific-time quiet window: skip fetching 12am–4am PT. The charts don't need
+// overnight resolution, and this trims API calls. Computed in America/Los_Angeles
+// so it's correct year-round across DST. Gates every trigger path (Cloudflare
+// cron and the GitHub backup schedule alike).
+function pacificHour() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    hour: "numeric",
+    hour12: false,
+  }).formatToParts(new Date());
+  return parseInt(parts.find((p) => p.type === "hour").value, 10) % 24;
+}
+
 (async () => {
+  const ph = pacificHour();
+  if (ph >= 0 && ph < 4) {
+    console.log(`SKIP ALL: ${ph}:xx Pacific is within the 12am-4am quiet window`);
+    return;
+  }
+
   let anyError = false;
   for (const route of config.routes) {
     // Routes with "fetch": false are kept in config (so the app still shows

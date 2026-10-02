@@ -132,7 +132,7 @@ Each run makes one call per **polled** route in [`config.json`](config.json). A 
 - **4 routes every 30 min** = 4 × 48/day × ~30.4 = ~5,800 calls/month → **free**.
 - **6 routes every 15 min** = ~17,500 calls/month → ~7,500 billable → **~$75/month**.
 
-Levers if you approach the cap: poll less often (the cron above), stop polling a route with `"fetch": false` (keeps its history visible), restrict to certain hours, or — at the cost of accuracy — switch to `TRAFFIC_UNAWARE` (the cheaper $5 Essentials SKU).
+Levers if you approach the cap: poll less often (the cron above), stop polling a route with `"fetch": false` (keeps its history visible), restrict to certain hours (`fetch.js` already skips a 12am–4am PT quiet window — adjust `pacificHour()` there), or — at the cost of accuracy — switch to `TRAFFIC_UNAWARE` (the cheaper $5 Essentials SKU).
 
 ## Running manually
 
