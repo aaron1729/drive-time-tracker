@@ -35,6 +35,8 @@ Edit [`config.json`](config.json). It holds a list of routes, each with a unique
 
 Add as many routes as you like — each gets its own line chart. Any geocodable address string works (street address, landmark name, etc.).
 
+> **Privacy: always use anonymized locations.** This repo, its `config.json` and its Pages site are public, so never enter a real home or workplace address. Use a nearby public spot instead, like a business, landmark or intersection a few blocks away. Drive times barely change, and nothing points to where anyone actually lives or works. All the addresses in this repo's `config.json` are anonymized this way.
+
 ### 3. Enable GitHub Pages
 
 In repo settings, go to **Pages** and set the source to **Deploy from a branch → main → / (root)**.
