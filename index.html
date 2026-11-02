@@ -20,6 +20,18 @@
     }
     h1 { font-size: 1.4rem; }
 
+    /* Retired-project notice */
+    .retired {
+      max-width: 900px;
+      background: #fef3c7;
+      border: 2px solid #f59e0b;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      color: #78350f;
+    }
+    .retired strong { display: block; font-size: 1.15rem; margin-bottom: 0.25rem; }
+    .retired p { font-size: 0.9rem; line-height: 1.4; }
+
     /* Top controls */
     .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; }
     .viewbtns { display: inline-flex; border: 1px solid #ccc; border-radius: 8px; overflow: hidden; }
@@ -78,6 +90,11 @@
   </style>
 </head>
 <body>
+  <div class="retired" role="note">
+    <strong>⚠️ This data is no longer being updated.</strong>
+    <p>Polling stopped in November 2026. The charts below show the history collected from June to November 2026; there are no new samples after that.</p>
+  </div>
+
   <h1>Drive Time Tracker</h1>
 
   <div class="toolbar">

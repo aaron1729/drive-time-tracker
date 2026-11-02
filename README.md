@@ -2,6 +2,8 @@
 
 Polls Google Maps driving time for one or more routes on a schedule and plots the history as a line chart per route on a GitHub Pages site.
 
+> **Status: paused as of November 2026.** Nothing polls anymore; the Pages site stays up with the history collected so far. See [Restarting](#restarting) to turn it back on.
+
 ## Setup
 
 ### 1. Add your API key
@@ -125,16 +127,43 @@ That's it — Cloudflare now fires the dispatch every 30 minutes. Cloudflare cro
 
 ## Cost
 
-The fetch uses the Routes API with `routingPreference: "TRAFFIC_AWARE"`, which bills at the **Compute Routes Pro** SKU: **$10 per 1,000 calls**, with the **first 10,000 calls per month free** (Google removed the old shared $200/month credit on 2025-03-01 in favor of per-SKU free allowances).
+The fetch uses the Routes API with `routingPreference: "TRAFFIC_AWARE"`, which bills at the **Compute Routes Pro** SKU: **$10 per 1,000 calls**, with the **first 5,000 calls per month free** (Google removed the old shared $200/month credit on 2025-03-01 in favor of per-SKU free allowances).
 
-Each run makes one call per **polled** route in [`config.json`](config.json). A route with `"fetch": false` is kept in the config — so the app still charts its historical data — but is no longer polled, so it costs nothing going forward. Keep `polled routes × calls-per-month` under 10,000 to stay in the free tier:
+Each run makes one call per **polled** route in [`config.json`](config.json). A route with `"fetch": false` is kept in the config — so the app still charts its historical data — but is no longer polled, so it costs nothing going forward. Keep `polled routes × calls-per-month` under 5,000 to stay in the free tier. (Essentials gets 10,000 free and Pro only 5,000. An earlier version of this README mixed them up.)
 
-- **4 routes every 30 min** = 4 × 48/day × ~30.4 = ~5,800 calls/month → **free**.
-- **6 routes every 15 min** = ~17,500 calls/month → ~7,500 billable → **~$75/month**.
+- **4 routes every 30 min, with the overnight quiet window** = 4 × ~41/day × ~30.4 = ~5,000–5,700 calls/month (the extra comes from GitHub's backup cron also firing) → **a few dollars over**.
+- **2 routes every 30 min** = ~2,500–2,900 calls/month → **free**.
+- **6 routes every 15 min** = ~17,500 calls/month → ~12,500 billable → **~$125/month**.
 
 Levers if you approach the cap: poll less often (the cron above), stop polling a route with `"fetch": false` (keeps its history visible), restrict to certain hours (see the quiet window below), or — at the cost of accuracy — switch to `TRAFFIC_UNAWARE` (the cheaper $5 Essentials SKU).
 
 **Overnight quiet window.** Regardless of which trigger fires it, `fetch.js` makes no API calls between **12:10am and 3:50am Pacific** (computed in `America/Los_Angeles`, so it's DST-correct year-round). The window is deliberately offset 10 minutes inside the hour so that the **12:00am and 4:00am ticks still fire** — holding the endpoints of the gap — while the interior half-hour ticks are skipped. During the window the run still completes successfully (it just logs `SKIP ALL` and exits). To change it, edit `QUIET_START` / `QUIET_END` in `fetch.js`.
+
+## Restarting
+
+**Paused 2026-11-02.** Polling was switched off but nothing was torn down: nothing was deleted, so it can be switched back on.
+
+**What was left in place:**
+
+| Piece | State | Left untouched |
+|---|---|---|
+| Google Cloud | **Routes API disabled** in the project that holds the key | The project, its billing, the API key |
+| GitHub Actions | **"Fetch drive time" workflow disabled** (stops both the `schedule` cron and `workflow_dispatch`) | The `GOOGLE_MAPS_API_KEY` repo secret |
+| Cloudflare Worker `drive-time-trigger` | **Cron trigger deleted**; **`workers.dev` route disabled** (so visiting its URL can't start a run) | The Worker's code and its `GH_TOKEN` secret |
+| GitHub fine-grained token (used by the Worker) | Deliberately **not revoked** | Still valid until it expires |
+| GitHub Pages | Still up, with a "no longer being updated" banner | All data through 2026-11-02 07:31 UTC |
+
+**To bring it back,** undo each one:
+
+1. **Google Cloud:** in the project that holds the API key, go to **APIs & Services → Library → Routes API → Enable**.
+2. **GitHub Actions:** go to **Actions → Fetch drive time → ⋯ → Enable workflow**.
+3. **Cloudflare Worker:** in `drive-time-trigger`, go to **Settings → Trigger Events → Cron Triggers** and add `*/30 * * * *` back. If you want to fire runs by visiting the URL, also re-enable the `workers.dev` route under **Settings → Domains & Routes**. If the fine-grained token has expired since, generate a new one as in step 1 of the Worker setup above and replace the Worker's `GH_TOKEN` secret.
+4. **This repo:** remove the "no longer being updated" banner at the top of `index.html` and the status note at the top of this README.
+
+**Before restarting, check:**
+
+- **Cost.** The last setup (4 polled routes every 30 min, with the overnight quiet window) came to ~5,700 calls/month, just over the 5,000-call free tier for Pro. Cut it to 2–3 polled routes (or set `"fetch": false` on the rest) to stay free. A Google Cloud budget alert (**Billing → Budgets & alerts**, e.g. $1) catches surprises by email, but it only alerts; it doesn't stop charges.
+- **Duplicate samples.** When both triggers are on, GitHub's backup `schedule` cron sometimes fires next to the Cloudflare one, giving two samples a few minutes apart and extra calls (~314/week per route instead of the ~287 expected). If the Cloudflare trigger proves reliable, consider removing the `schedule:` block from `.github/workflows/fetch.yml`, or have `fetch.js` skip a route whose last sample is under ~10 minutes old.
 
 ## Running manually
 
